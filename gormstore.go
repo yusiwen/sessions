@@ -7,8 +7,8 @@ import (
 	"github.com/gorilla/context"
 	"github.com/gorilla/securecookie"
 	gsessions "github.com/gorilla/sessions"
-	"github.com/jinzhu/gorm"
 	"github.com/teris-io/shortid"
+	"gorm.io/gorm"
 )
 
 // Options for gormstore
@@ -86,7 +86,7 @@ func (st *GormStore) New(r *http.Request, name string) (*gsessions.Session, erro
 	if cookie, err := r.Cookie(name); err == nil {
 		session.ID = cookie.Value
 		s := &gormSession{tableName: st.opts.TableName}
-		if err := st.db.Where("id = ? AND expires_at > ?", session.ID, gorm.NowFunc()).First(s).Error; err != nil {
+		if err := st.db.Where("id = ? AND expires_at > ?", session.ID, time.Now()).First(s).Error; err != nil {
 			return session, nil
 		}
 		if err := securecookie.DecodeMulti(session.Name(), s.Data, &session.Values, st.Codecs...); err != nil {
@@ -193,7 +193,7 @@ func (st *GormStore) MaxLength(l int) {
 
 // Cleanup deletes expired sessions
 func (st *GormStore) Cleanup() {
-	st.db.Delete(&gormSession{tableName: st.opts.TableName}, "expires_at <= ?", gorm.NowFunc())
+	st.db.Delete(&gormSession{tableName: st.opts.TableName}, "expires_at <= ?", time.Now())
 	time.AfterFunc(15*time.Second, func() {
 		st.Cleanup()
 	})
