@@ -13,7 +13,6 @@ import (
 
 // Options for gormstore
 type GormStoreOptions struct {
-	TableName       string
 	SkipCreateTable bool
 }
 
@@ -26,20 +25,18 @@ type GormStore struct {
 }
 
 type gormSession struct {
-	ID        string `sql:"unique_index"`
-	Data      string `sql:"type:text"`
+	ID        string `gorm:"primaryKey"`
+	Data      string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	ExpiresAt time.Time `sql:"index"`
-
-	tableName string `sql:"-"` // just for convenience instead of db.Table(...)
+	ExpiresAt time.Time `gorm:"index"`
 }
 
 // Define a type for context keys so that they can't clash with anything else stored in context
 type contextKey string
 
 func (gs *gormSession) TableName() string {
-	return gs.tableName
+	return "t_sessions"
 }
 
 // New creates a new gormstore session
@@ -58,12 +55,9 @@ func NewGormStoreWithOptions(db *gorm.DB, opts GormStoreOptions, keyPairs ...[]b
 			MaxAge: defaultMaxAge,
 		},
 	}
-	if st.opts.TableName == "" {
-		st.opts.TableName = "t_sessions"
-	}
 
 	if !st.opts.SkipCreateTable {
-		st.db.AutoMigrate(&gormSession{tableName: st.opts.TableName})
+		st.db.AutoMigrate(&gormSession{})
 	}
 	st.Cleanup()
 	return st
@@ -85,7 +79,7 @@ func (st *GormStore) New(r *http.Request, name string) (*gsessions.Session, erro
 	// try fetch from db if there is a cookie
 	if cookie, err := r.Cookie(name); err == nil {
 		session.ID = cookie.Value
-		s := &gormSession{tableName: st.opts.TableName}
+		s := &gormSession{}
 		if err := st.db.Where("id = ? AND expires_at > ?", session.ID, time.Now()).First(s).Error; err != nil {
 			return session, nil
 		}
@@ -104,7 +98,7 @@ func (st *GormStore) New(r *http.Request, name string) (*gsessions.Session, erro
 func (st *GormStore) RenewID(r *http.Request, w http.ResponseWriter, session *gsessions.Session) error {
 	_id := session.ID
 	session.ID = shortid.MustGenerate()
-	st.db.Exec("UPDATE "+st.opts.TableName+" SET id=? WHERE id=?", session.ID, _id)
+	st.db.Model(&gormSession{}).Where("id=?", _id).Update("id", session.ID)
 	http.SetCookie(w, gsessions.NewCookie(session.Name(), session.ID, session.Options))
 	return nil
 }
@@ -141,7 +135,6 @@ func (st *GormStore) Save(r *http.Request, w http.ResponseWriter, session *gsess
 			CreatedAt: now,
 			UpdatedAt: now,
 			ExpiresAt: expire,
-			tableName: st.opts.TableName,
 		}
 		if err := st.db.Create(s).Error; err != nil {
 			return err
@@ -193,7 +186,7 @@ func (st *GormStore) MaxLength(l int) {
 
 // Cleanup deletes expired sessions
 func (st *GormStore) Cleanup() {
-	st.db.Delete(&gormSession{tableName: st.opts.TableName}, "expires_at <= ?", time.Now())
+	st.db.Delete(&gormSession{}, "expires_at <= ?", time.Now())
 	time.AfterFunc(15*time.Second, func() {
 		st.Cleanup()
 	})
